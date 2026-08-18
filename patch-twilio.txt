@@ -1,0 +1,55 @@
+// --- ADMISSION ENQUIRY ---
+apiRouter.post("/enquiries", async (req, res) => {
+  const { studentName, parentName, applyingClass, phone, email, message } = req.body;
+  if (!studentName || !parentName || !applyingClass || !phone) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+  try {
+    await db.insert(schema.admissionEnquiries).values({
+      studentName,
+      parentName,
+      applyingClass,
+      phone,
+      email: email || null,
+      message: message || null,
+      createdAt: new Date().toISOString()
+    });
+
+    // Send auto-notification via Twilio if configured
+    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+      try {
+        const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        const autoMessage = `Hi ${parentName}, we have successfully received your admission request for ${studentName} (Class: ${applyingClass}). We will contact you shortly! - Trivir Public School`;
+        
+        // Ensure phone has country code. Defaulting to +91 (India) if none provided for simplicity
+        let formattedPhone = phone.startsWith("+") ? phone : `+91${phone}`;
+
+        // Send SMS
+        if (process.env.TWILIO_PHONE_NUMBER) {
+          await client.messages.create({
+            body: autoMessage,
+            from: process.env.TWILIO_PHONE_NUMBER,
+            to: formattedPhone
+          });
+        }
+        
+        // Send WhatsApp
+        if (process.env.TWILIO_WHATSAPP_NUMBER) {
+          await client.messages.create({
+            body: autoMessage,
+            from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+            to: `whatsapp:${formattedPhone}`
+          });
+        }
+      } catch (twilioErr) {
+        console.error("Twilio Error: ", twilioErr);
+        // Do not fail the whole request if SMS fails
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
